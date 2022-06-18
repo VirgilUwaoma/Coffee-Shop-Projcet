@@ -1,21 +1,19 @@
 import json
-from flask import request, _request_ctx_stack, abort
+from flask import request, _request_ctx_stack
 from functools import wraps
 from jose import jwt
 from urllib.request import urlopen
 
 
-AUTH0_DOMAIN = 'udacity-fsnd.auth0.com'
+AUTH0_DOMAIN = 'virgil-fs-coffee-app.us.auth0.com'
 ALGORITHMS = ['RS256']
-API_AUDIENCE = 'dev'
+API_AUDIENCE = 'coffee'
 
-# AuthError Exception
+## AuthError Exception
 '''
 AuthError Exception
 A standardized way to communicate auth failure modes
 '''
-
-
 class AuthError(Exception):
     def __init__(self, error, status_code):
         self.error = error
@@ -25,31 +23,26 @@ class AuthError(Exception):
 # Auth Header
 
 def get_token_auth_header():
-    auth = request.header.get('Authorizaion', None)
-    if not auth:
+    if "Authorization" not in request.headers:
         raise AuthError({
-            'code': 'authorization_header_missing',
-            'description': 'Authorization header is expected.'
+            'code': 'invalid_authorization',
+            'description': 'Authorization not included in Header.'
         }, 401)
-
-    parts = auth.split()
-    if parts[0].lower() != 'bearer':
-        raise AuthError({
-            'code': 'invalid_header',
-            'description': 'Authorization header must start with "Bearer".'
-        }, 401)
-    elif len(parts) == 1:
+    
+    auth_header = request.headers['Authorization']
+    header_parts = auth_header.split(' ')
+    if len(header_parts)!=2:
         raise AuthError({
             'code': 'invalid_header',
-            'description': 'Token not found.'
+            'description': 'Invalid Header.'
         }, 401)
-    elif len(parts) > 2:
+    elif header_parts[0].lower() != 'bearer':
         raise AuthError({
-            'code': 'invalid_header',
-            'description': 'Authorization header must be bearer token.'
+            'code': 'invalid_bearer token',
+            'description': 'Bearer missing in header.'
         }, 401)
-
-    token = parts[1]
+    bearer  = header_parts[0]
+    token = header_parts[1]
     return token
 
 
@@ -68,17 +61,12 @@ def check_permissions(permission, payload):
     return True
 
 
-'''
-!!NOTE urlopen has a common certificate error described here:
-https://stackoverflow.com/questions/50236117/
-scraping-ssl-certificate-verify-failed-error-for-http-en-wikipedia-org
-'''
-
 
 def verify_decode_jwt(token):
     jsonurl = urlopen(f'https://{AUTH0_DOMAIN}/.well-known/jwks.json')
     jwks = json.loads(jsonurl.read())
     unverified_header = jwt.get_unverified_header(token)
+
     rsa_key = {}
     if 'kid' not in unverified_header:
         raise AuthError({
@@ -106,10 +94,16 @@ def verify_decode_jwt(token):
             )
             return payload
 
+        except jwt.ExpiredSignatureError:
+            raise AuthError({
+                'code': 'token_expired',
+                'description': 'Token expired.'
+            }, 401)
+
         except jwt.JWTClaimsError:
             raise AuthError({
                 'code': 'invalid_claims',
-                'description': 'Incorrect claims check the audience and issuer'
+                'description': 'Incorrect claims. Please, check the audience and issuer.'
             }, 401)
         except Exception:
             raise AuthError({
@@ -130,7 +124,11 @@ def requires_auth(permission=''):
             try:
                 payload = verify_decode_jwt(token)
             except:
-                abort(401)
+                raise AuthError({
+                'code': 'unauthorized',
+                'description': 'Permission not found.'
+            }, 403)
+            
             check_permissions(permission, payload)
             return f(payload, *args, **kwargs)
 
